@@ -304,6 +304,8 @@ body { padding-block: 14px calc(88px + env(safe-area-inset-bottom, 0px)); }
 .tabs button[aria-selected="true"] { background: none; box-shadow: inset 0 3px 0 var(--accent); }
 .tabs button .ic { width: 23px; height: 23px; }
 .toast { bottom: calc(90px + env(safe-area-inset-bottom, 0px)); }
+.toast:has(.toast-btn) { display: flex; align-items: center; gap: 12px; padding-right: 6px; }
+.toast-btn { font: 700 15px var(--display); letter-spacing: .06em; text-transform: uppercase; color: var(--bg); background: none; border: 0; padding: 6px 10px; text-decoration: underline; cursor: pointer; flex: none; }
 /* Next up */
 #summary:empty { display: none; }
 .nextup { width: 100%; text-align: left; display: flex; gap: 14px; align-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px; }
@@ -396,6 +398,13 @@ body { padding-block: 14px calc(88px + env(safe-area-inset-bottom, 0px)); }
 .actions .snap-btn { flex: 0 0 auto; padding: 10px 13px; }
 .actions .btn { overflow: hidden; }
 @media (max-width: 440px) { .actions:has(.snap-btn:not([hidden])) .btn:not(.snap-btn) .ic { display: none; } .actions .btn { font-size: 15px; letter-spacing: .04em; } }
+.sync-btn .sync-short { display: none; }
+@media (max-width: 480px) {
+  .actions .sync-btn { flex: 0 0 auto; padding-inline: 10px; gap: 5px; }
+  .sync-btn .sync-long { display: none; } .sync-btn .sync-short { display: inline; }
+  .actions:has(.sync-btn:not([hidden])) .btn:not(.sync-btn):not(.snap-btn) .ic { display: none; }
+}
+@media (max-width: 360px) { .sync-btn .sync-short { display: none; } .actions .sync-btn { padding-inline: 12px; } }
 .odo-card .snap-btn { background: var(--cluster-2); color: var(--cluster-fg); border-color: var(--cluster-line); }
 .snap-opts { display: grid; gap: 8px; }
 .snap-opt { display: flex; gap: 12px; align-items: center; text-align: left; padding: 14px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); }
@@ -561,6 +570,7 @@ details.more > * + * { margin-top: 10px; }
 <symbol id="i-clipboard" viewBox="0 0 24 24"><rect x="5" y="4.5" width="14" height="16" rx="2"/><path d="M9 4.5V3.5h6v1M9 4.5h6v2H9z"/><path d="M8.5 13l2.2 2.2 4.8-4.7"/></symbol>
 <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5"/><path d="M4.5 16.5v2.5a1.5 1.5 0 0 0 1.5 1.5h12a1.5 1.5 0 0 0 1.5-1.5v-2.5"/></symbol>
 <symbol id="i-camera" viewBox="0 0 24 24"><path d="M4 8.5A1.5 1.5 0 0 1 5.5 7h2.2l1.5-2h5.6l1.5 2h2.2A1.5 1.5 0 0 1 20 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5z"/><circle cx="12" cy="13" r="3.5"/></symbol>
+<symbol id="i-bt" viewBox="0 0 24 24"><path d="M7 7.5l10 9-5 4.5V3l5 4.5-10 9"/></symbol>
 <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20h16"/><path d="M6.5 16v-4M10.5 16V8M14.5 16v-6M18.5 16V5"/></symbol>
 </defs></svg>
 <div class="wrap">
@@ -577,6 +587,7 @@ details.more > * + * { margin-top: 10px; }
       </div>
       <div class="actions">
         <button class="btn primary" id="btnKm" type="button"><svg class="ic" aria-hidden="true"><use href="#i-gauge"/></svg>Update km</button>
+        <button class="btn sync-btn" id="btnSync" type="button" aria-label="Sync from car" title="Sync from car" hidden><svg class="ic" aria-hidden="true"><use href="#i-bt"/></svg><span class="sync-long">Sync from car</span><span class="sync-short">Sync</span></button>
         <button class="btn" id="btnService" type="button"><svg class="ic" aria-hidden="true"><use href="#i-wrench"/></svg>Log a service</button>
         <button class="btn snap-btn" id="btnSnap" type="button" aria-label="Snap a photo to log" title="Snap to log" hidden><svg class="ic" aria-hidden="true"><use href="#i-camera"/></svg></button>
       </div>
@@ -616,10 +627,12 @@ details.more > * + * { margin-top: 10px; }
   const addMonths = (d, m) => { const r = new Date(d); const day = r.getDate(); r.setMonth(r.getMonth() + m); if (r.getDate() < day) r.setDate(0); return r; };
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
-  function toast(msg) {
+  // Optional action adds a button, e.g. toast('Saved', { label: 'Undo', onClick: fn, ms: 8000 }).
+  function toast(msg, action) {
     const root = $('#toastRoot');
-    root.innerHTML = `<div class="toast" role="status">${esc(msg)}</div>`;
-    clearTimeout(toast.t); toast.t = setTimeout(() => { root.innerHTML = ''; }, 2600);
+    root.innerHTML = `<div class="toast" role="status"><span>${esc(msg)}</span>${action ? `<button type="button" class="toast-btn">${esc(action.label)}</button>` : ''}</div>`;
+    clearTimeout(toast.t); toast.t = setTimeout(() => { root.innerHTML = ''; }, action ? action.ms || 8000 : 2600);
+    if (action) root.querySelector('.toast-btn').onclick = () => { clearTimeout(toast.t); root.innerHTML = ''; action.onClick(); };
   }
 
   /* ---------- Core logic ---------- */
@@ -2332,7 +2345,7 @@ Dates on Australian documents are day/month/year.`;
       else if (d > 10000) warn = `That’s ${fmtKm(d)} km more than your last reading. Check the digits.`;
     }
     openSheet(`<h2>${existing ? 'Edit reading' : 'Update km'}</h2>
-      ${pf ? `<div class="from-photo${pf.confidence === 'low' || warn || !pf.km ? ' warn' : ''}">${icon(pf.confidence === 'low' || warn || !pf.km ? 'alert' : 'check')}${pf.fromScanner ? `Read the scanner counter from your screenshot: ${fmtKm(pf.scan)} km since codes cleared.` : 'Read from your photo.'}${pf.confidence ? ` (${esc(pf.confidence)} confidence)` : ''} Check it before saving.${pf.reason ? ' ' + esc(pf.reason) : ''}${warn ? ' ' + warn : ''}</div>` : ''}
+      ${pf ? `<div class="from-photo${pf.confidence === 'low' || warn || !pf.km || pf.fromCar ? ' warn' : ''}">${icon(pf.confidence === 'low' || warn || !pf.km || pf.fromCar ? 'alert' : 'check')}${pf.fromCar ? `Read from the car: ${fmtKm(pf.scan)} km since codes cleared.` : pf.fromScanner ? `Read the scanner counter from your screenshot: ${fmtKm(pf.scan)} km since codes cleared.` : 'Read from your photo.'}${pf.confidence ? ` (${esc(pf.confidence)} confidence)` : ''} Check it before saving.${pf.reason ? ' ' + esc(pf.reason) : ''}${warn ? ' ' + warn : ''}</div>` : ''}
       <div class="row2">
         <div class="field"><label for="f-km">Odometer (km)</label><input id="f-km" inputmode="numeric" pattern="[0-9]*" placeholder="${cur ? Math.round(cur.km) : '210000'}" value="${existing ? esc(existing.km) : pf && pf.km ? esc(pf.km) : ''}"></div>
         <div class="field"><label for="f-date">Date</label><input id="f-date" type="date" value="${existing ? esc(existing.date) : todayISO()}"></div>
@@ -2385,6 +2398,145 @@ Dates on Australian documents are day/month/year.`;
         };
         if (existing) wireDelete(sheet, 'this reading', () => state.db.collection('odo').doc(existing._id).delete());
         const kp = $('#kmPhoto', sheet); if (kp) kp.onclick = snapOdometer;
+      });
+  }
+
+  /* ---------- Sync from car (Veepeak OBDCheck BLE) ---------- */
+
+  // Read-only by design: these are the only commands that can ever be sent to the car.
+  // Anything else is refused, above all mode 04 (clear codes), which would reset the
+  // counter and erase the fault history.
+  const OBD_ALLOWED = new Set(['ATZ', 'ATE0', 'ATL0', 'ATS0', 'ATH0', 'ATSP0', '0100', '0131']);
+  const OBD_SETUP = ['ATZ', 'ATE0', 'ATL0', 'ATS0', 'ATH0', 'ATSP0', '0100'];
+  const obdErr = (code, message) => Object.assign(new Error(message || code), { code });
+
+  // Testing at the desk: ?mockobd=12000 uses a fake adapter that reports that counter.
+  // ?mockobd=timeout, busy, nodata, garbage or cancel fake those problems. Off unless the URL asks for it.
+  const OBD_MOCK = (() => { try { return new URLSearchParams(location.search).get('mockobd'); } catch (e) { return null; } })();
+
+  // Every command goes through here. Replies end at the adapter's ">" prompt.
+  function obdSend(adapter, cmd, ms = 10000) {
+    if (!OBD_ALLOWED.has(cmd)) return Promise.reject(obdErr('blocked', `Refused to send ${cmd}: not on the read-only list`));
+    return new Promise((resolve, reject) => {
+      const t = setTimeout(() => reject(obdErr('timeout')), ms);
+      adapter.write(cmd).then(r => { clearTimeout(t); resolve(r); }, e => { clearTimeout(t); reject(e); });
+    });
+  }
+
+  // The real adapter. requestDevice must be the first thing after the tap, so nothing is awaited before it.
+  async function bleAdapter(showAll, step) {
+    const uuid = (s) => `0000${s}-0000-1000-8000-00805f9b34fb`; // Bluefy needs the full 128-bit UUIDs
+    const SERVICE = uuid('fff0');
+    let device;
+    try {
+      device = await navigator.bluetooth.requestDevice(showAll
+        ? { acceptAllDevices: true, optionalServices: [SERVICE] }
+        : { filters: [{ namePrefix: 'VEEPEAK' }], optionalServices: [SERVICE] });
+    } catch (e) { throw obdErr(e && e.name === 'NotFoundError' ? 'cancelled' : 'bluetooth', e && e.message); }
+    step('Connecting…');
+    const enc = new TextEncoder(), dec = new TextDecoder();
+    let writeChar, buffer = '', waiter = null;
+    try {
+      const service = await (await device.gatt.connect()).getPrimaryService(SERVICE);
+      writeChar = await service.getCharacteristic(uuid('fff2'));
+      const notify = await service.getCharacteristic(uuid('fff1'));
+      notify.addEventListener('characteristicvaluechanged', (e) => {
+        buffer += dec.decode(e.target.value);
+        if (waiter && buffer.includes('>')) { const w = waiter; waiter = null; const text = buffer.replace(/>/g, '').trim(); buffer = ''; w(text); }
+      });
+      await notify.startNotifications();
+    } catch (e) {
+      try { device.gatt.disconnect(); } catch (_) {}
+      throw obdErr('busy', e && e.message);
+    }
+    return {
+      write: (cmd) => new Promise((resolve, reject) => {
+        buffer = ''; waiter = resolve;
+        const bytes = enc.encode(cmd + '\r');
+        (writeChar.writeValueWithResponse ? writeChar.writeValueWithResponse(bytes) : writeChar.writeValue(bytes)).catch(e => { waiter = null; reject(e); });
+      }),
+      close: () => { try { if (device.gatt.connected) device.gatt.disconnect(); } catch (e) {} }
+    };
+  }
+
+  // The fake adapter for ?mockobd=. Replies like the Veepeak does.
+  async function mockAdapter(step) {
+    const wait = (ms) => new Promise(r => setTimeout(r, ms));
+    const mode = String(OBD_MOCK).toLowerCase(), counter = /^\d+$/.test(mode) ? +mode : null;
+    await wait(500);
+    if (mode === 'cancel') throw obdErr('cancelled');
+    if (mode === 'busy') throw obdErr('busy', 'test adapter is busy');
+    step('Connecting…'); await wait(500);
+    return {
+      write: async (cmd) => {
+        if (mode === 'timeout') return new Promise(() => {}); // never answers
+        await wait(250);
+        if (cmd === 'ATZ') return 'ELM327 v1.5';
+        if (cmd === '0100') return '4100BE3FA813';
+        if (cmd === '0131') return mode === 'nodata' ? 'NO DATA' : counter != null && counter <= 0xFFFF ? '4131' + counter.toString(16).toUpperCase().padStart(4, '0') : '7F0112';
+        return 'OK';
+      },
+      close: () => {}
+    };
+  }
+
+  // Connect, set up, read 0131, disconnect. Resolves the "distance since codes cleared" counter in km.
+  async function obdReadCounter(showAll, step) {
+    const adapter = await (OBD_MOCK ? mockAdapter(step) : bleAdapter(showAll, step));
+    try {
+      step('Setting up the adapter…');
+      for (const cmd of OBD_SETUP) await obdSend(adapter, cmd, cmd === '0100' ? 15000 : 10000); // 0100 also runs the protocol search
+      step('Reading…');
+      const reply = (await obdSend(adapter, '0131')).replace(/\s/g, '').toUpperCase();
+      const m = reply.match(/4131([0-9A-F]{2})([0-9A-F]{2})/);
+      if (!m) throw obdErr(/NODATA/.test(reply) ? 'no_data' : 'bad_reply', reply);
+      return parseInt(m[1], 16) * 256 + parseInt(m[2], 16);
+    } finally { adapter.close(); }
+  }
+
+  function syncFromCar(showAll) {
+    if (!state.db) return toast('Saving isn’t available in this view.');
+    if (syncFromCar.running) return;
+    syncFromCar.running = true;
+    openSheet(`<h2>Sync from car</h2>
+      <div class="reading"><span class="spin" aria-hidden="true"></span><span id="obdStep">${OBD_MOCK ? 'Test adapter: connecting…' : 'Choose VEEPEAK from the list…'}</span></div>`);
+    const step = (t) => { const el = $('#obdStep'); if (el) el.textContent = t; };
+    obdReadCounter(showAll, step).then(useCarCounter, carSyncFailed).finally(() => { syncFromCar.running = false; });
+  }
+
+  // Saves straight away when the result makes sense; otherwise opens Update km with the counter filled in.
+  async function useCarCounter(counter) {
+    const anchor = odoAnchor(), cur = currentKm();
+    const last = cur && cur.base ? +cur.base.km : null;
+    const km = anchor && counter >= +anchor.counter ? +anchor.offset + counter : null;
+    let why = null;
+    if (!anchor) why = 'It isn’t linked to the odometer yet.'; // the hint under the counter field says what to do
+    else if (km == null) why = `That’s lower than when it was linked (${fmtKm(anchor.counter)} km).`;
+    else if (last != null && km < last) why = ''; // kmSheet already warns that it's lower than the last reading
+    else if (last != null && km > last + 3000) why = km - last > 10000 ? '' : `That’s ${fmtKm(km - last)} km more than your last reading, a bigger jump than usual.`;
+    if (why != null) return kmSheet(null, { km, scan: counter, fromScanner: true, fromCar: true, reason: why });
+    let ref = null;
+    await write(async () => { ref = await state.db.collection('odo').add({ km, date: todayISO(), scan: counter, note: `From car (counter ${fmtKm(counter)})` }); }, 'Odometer updated');
+    if (ref) toast(`Odometer updated: ${fmtKm(km)} km`, { label: 'Undo', ms: 8000, onClick: () => write(() => state.db.collection('odo').doc(ref.id).delete(), 'Reading removed') });
+  }
+
+  function carSyncFailed(e) {
+    const c = e && e.code;
+    if (c === 'cancelled') return closeSheet();
+    const useKm = c === 'no_data' || c === 'bad_reply';
+    const msg = c === 'timeout' ? 'No answer from the adapter. Is the ignition on?'
+      : c === 'busy' ? 'Couldn’t connect to the adapter. Close any other OBD app (like Car Scanner) and try again.'
+      : c === 'no_data' ? 'The car didn’t give a reading (NO DATA). Use Update km to enter it from the dash instead.'
+      : c === 'bad_reply' ? `The adapter gave an unexpected reply (${e.message}). Use Update km to enter it from the dash instead.`
+      : `Something went wrong: ${(e && e.message) || 'unknown error'}. Try again, or use Update km instead.`;
+    openSheet(`<h2>Sync from car</h2>
+      <div class="from-photo warn">${icon('alert')}${esc(msg)}</div>
+      <div class="sheet-actions">${OBD_MOCK ? '' : '<button class="btn ghost" type="button" id="obdAll">Show all devices</button><span class="spacer"></span>'}
+        <button class="btn ghost" type="button" data-act="close">Close</button>
+        <button class="btn primary" type="button" id="obdNext">${useKm ? 'Update km' : 'Try again'}</button></div>`,
+      (sheet) => {
+        $('#obdNext', sheet).onclick = () => useKm ? kmSheet(null) : syncFromCar(false);
+        const all = $('#obdAll', sheet); if (all) all.onclick = () => syncFromCar(true);
       });
   }
 
@@ -2625,6 +2777,8 @@ Dates on Australian documents are day/month/year.`;
   window.addEventListener('resize', () => { clearTimeout(resizeT); resizeT = setTimeout(() => { if (state.tab === 'spending' && Math.abs(window.innerWidth - lastW) > 40) { lastW = window.innerWidth; render(); } }, 250); });
   $('#btnKm').onclick = () => state.db ? kmSheet(null) : toast('Saving isn’t available in this view.');
   $('#btnService').onclick = () => state.db ? serviceSheet(null) : toast('Saving isn’t available in this view.');
+  $('#btnSync').hidden = !(navigator.bluetooth || OBD_MOCK);
+  $('#btnSync').onclick = () => syncFromCar(false);
   $('#btnSnap').onclick = () => snapChooser();
   $('#tabSchedule').onclick = () => { state.tab = 'schedule'; render(); };
   $('#tabHistory').onclick = () => { state.tab = 'history'; render(); };
