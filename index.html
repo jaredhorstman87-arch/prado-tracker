@@ -603,6 +603,7 @@ details.more > * + * { margin-top: 10px; }
 (function () {
   const DAY = 86400000;
   const state = { db: null, items: [], logs: [], odos: [], watch: [], stock: [], sample: null, sampleImages: null, renewals: [], meta: [], tyres: [], jobs: [], jobruns: [], valuations: [], downloads: null, assets: null, planKm: 5000, runKm: 30000, planOpen: false, loaded: { items: false, logs: false, odos: false, watch: false, stock: false, renewals: false, meta: false, tyres: false, jobs: false, jobruns: false, valuations: false }, tab: 'schedule', insView: (() => { try { return localStorage.getItem('prado-insview') || 'overview'; } catch (e) { return 'overview'; } })(), unavailable: false };
+  try { const t = sessionStorage.getItem('prado-tab'); if (['schedule', 'history', 'spending', 'stock', 'watch'].includes(t)) state.tab = t; } catch (e) {}
   const $ = (s, r = document) => r.querySelector(s);
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const fmtKm = (n) => Math.round(n).toLocaleString('en-AU');
@@ -736,6 +737,7 @@ details.more > * + * { margin-top: 10px; }
   function allLoaded() { return state.loaded.items && state.loaded.logs && state.loaded.odos; }
 
   function render() {
+    try { sessionStorage.setItem('prado-tab', state.tab); } catch (e) {} // a pull-to-refresh comes back to the same tab
     const cur = currentKm();
     renderOdo(cur);
     const view = $('#view');
