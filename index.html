@@ -2338,6 +2338,9 @@ Dates on Australian documents are day/month/year.`;
   function kmSheet(existing, pf) {
     const cur = currentKm();
     const anchor = odoAnchor();
+    // Synced from the car today? Start with that counter, so only the dash reading is needed to re-link.
+    const lastOdo = state.odos.filter(o => o.date).sort((a, b) => String(b.date).localeCompare(String(a.date)) || (+b.km || 0) - (+a.km || 0))[0];
+    const carScan = !existing && !pf && lastOdo && lastOdo.scan != null && lastOdo.date === todayISO() ? +lastOdo.scan : null;
     let warn = '';
     if (pf && pf.km && cur && cur.base) {
       const d = pf.km - cur.base.km;
@@ -2351,8 +2354,8 @@ Dates on Australian documents are day/month/year.`;
         <div class="field"><label for="f-date">Date</label><input id="f-date" type="date" value="${existing ? esc(existing.date) : todayISO()}"></div>
       </div>
       <div class="field"><label for="f-note">Note (optional)</label><input id="f-note" placeholder="e.g. fuel fill, Shell Sutherland" value="${existing ? esc(existing.note || '') : pf && !pf.fromScanner ? 'From dash photo' : ''}"></div>
-      ${existing ? '' : `<details class="more"${pf && pf.fromScanner ? ' open' : ''}><summary>From the OBD scanner</summary>
-        <div class="field"><label for="f-scan">Distance since codes cleared (km)</label><input id="f-scan" inputmode="numeric" pattern="[0-9]*" value="${pf && pf.scan ? esc(pf.scan) : ''}" placeholder="${anchor ? 'e.g. ' + (+anchor.counter + 120) : 'e.g. 11881'}"></div>
+      ${existing ? '' : `<details class="more"${pf && pf.fromScanner || carScan != null ? ' open' : ''}><summary>From the OBD scanner</summary>
+        <div class="field"><label for="f-scan">Distance since codes cleared (km)</label><input id="f-scan" inputmode="numeric" pattern="[0-9]*" value="${pf && pf.scan ? esc(pf.scan) : carScan != null ? esc(carScan) : ''}" placeholder="${anchor ? 'e.g. ' + (+anchor.counter + 120) : 'e.g. 11881'}"></div>
         <p class="sub" id="scanHint" style="margin:0">${anchor ? `Linked on ${fmtDate(parseDate(anchor.date))}: odometer = ${fmtKm(anchor.offset)} + this counter.` : 'Enter today’s dash odometer above as well, once, to link the counter to it.'}</p>
       </details>`}
       ${!existing && !pf && PhotoReader.available() ? `<button class="btn ghost file-btn" type="button" id="kmPhoto">${icon('camera')}Read from a photo</button>` : ''}
@@ -2388,7 +2391,8 @@ Dates on Australian documents are day/month/year.`;
             data.scan = sc;
             const computed = anchor && sc >= +anchor.counter ? +anchor.offset + sc : null;
             // A dash reading that differs from the calculation (or a reset counter) re-links the counter.
-            if (computed == null || Math.abs(km - computed) > 5) newAnchor = { offset: km - sc, counter: sc, odo: km, date };
+            // 1 km is the most that whole-km rounding can explain, so anything more re-links.
+            if (computed == null || Math.abs(km - computed) > 1) newAnchor = { offset: km - sc, counter: sc, odo: km, date };
             if (!data.note) data.note = computed != null && !newAnchor ? `From scanner (counter ${fmtKm(sc)})` : `Dash, scanner linked (counter ${fmtKm(sc)})`;
           }
           await write(async () => {
