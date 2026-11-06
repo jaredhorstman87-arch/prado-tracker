@@ -85,6 +85,8 @@ button { cursor: pointer; }
 .odo-card .odo-meta strong { color: var(--cluster-fg); }
 .odo-card .btn:not(.primary) { background: var(--cluster-2); color: var(--cluster-fg); border-color: var(--cluster-line); }
 .odo-card .odo .unit { color: var(--accent); opacity: 1; font-weight: 700; }
+.odo.est span:not(.unit):not(.approx) { opacity: .5; }
+.odo .approx { width: auto; padding: 2px 2px 2px 4px; background: none; color: var(--cluster-muted); font-weight: 500; }
 .odo-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .odo { display: inline-flex; gap: 3px; background: var(--odo-bg); padding: 6px; border-radius: 8px; }
 .odo span { font-family: var(--mono); font-weight: 700; font-size: 26px; color: var(--odo-fg); width: 1.15em; text-align: center; padding: 2px 0; border-radius: 3px; background: linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,0) 45%, rgba(0,0,0,.25)); font-variant-numeric: tabular-nums; }
@@ -656,7 +658,8 @@ details.more > * + * { margin-top: 10px; }
     const since = Math.max(0, daysBetween(last.date, startOfToday()));
     let km = Math.max(last.km, maxKmAny);
     let estimated = false;
-    if (rate && since >= 1) { km = Math.round((last.km + rate * since) / 10) * 10; km = Math.max(km, maxKmAny); estimated = true; }
+    // A reading a day or two old is still shown as it is; from 3 days, estimate from the driving rate.
+    if (rate && since >= 3) { km = Math.round((last.km + rate * since) / 10) * 10; km = Math.max(km, maxKmAny); estimated = true; }
     return { km, base: last, rate, since, estimated };
   }
 
@@ -733,8 +736,10 @@ details.more > * + * { margin-top: 10px; }
   function renderOdo(cur) {
     const odo = $('#odo');
     const digits = cur ? String(Math.round(cur.km)).padStart(6, '0') : '------';
-    odo.innerHTML = digits.split('').map(d => `<span>${d}</span>`).join('') + '<span class="unit">km</span>';
-    odo.setAttribute('aria-label', cur ? `${fmtKm(cur.km)} km` : 'No odometer reading yet');
+    const est = !!(cur && cur.estimated);
+    odo.classList.toggle('est', est); // an estimate is dimmed with ≈ so it doesn't look like a real reading
+    odo.innerHTML = (est ? '<span class="approx" aria-hidden="true">≈</span>' : '') + digits.split('').map(d => `<span>${d}</span>`).join('') + '<span class="unit">km</span>';
+    odo.setAttribute('aria-label', cur ? `${est ? 'About ' : ''}${fmtKm(cur.km)} km` : 'No odometer reading yet');
     const meta = $('#odoMeta');
     if (state.unavailable) { meta.innerHTML = 'Saving isn’t available in this view. Open this page on claude.ai while signed in.'; return; }
     if (!allLoaded()) { meta.textContent = 'Loading…'; return; }
@@ -1338,9 +1343,9 @@ Dates on Australian documents are day/month/year.`;
       const r = await PhotoReader.odometer(files, ctl.signal);
       const sc = Math.round(Number(r && r.sinceCleared));
       if (!(Number(r && r.km) > 0) && sc > 0) {
-        const a = odoAnchor();
-        const ok = a && sc >= +a.counter;
-        return kmSheet(null, { km: ok ? +a.offset + sc : null, scan: sc, fromScanner: true, confidence: String(r.confidence || ''), reason: ok ? '' : 'Enter today’s dash odometer too, so the scanner counter can be linked to it.' });
+        const est = odoFromCounter(odoAnchor(), sc);
+        const ok = est != null;
+        return kmSheet(null, { km: est, scan: sc, fromScanner: true, confidence: String(r.confidence || ''), reason: ok ? '' : 'Enter today’s dash odometer too, so the scanner counter can be linked to it.' });
       }
       const km = Math.round(Number(r && r.km));
       if (!(km > 0)) { closeSheet(); return toast(r && r.note ? `Couldn’t read the odometer: ${r.note}` : 'Couldn’t find the odometer in that photo.'); }
@@ -2333,8 +2338,23 @@ Dates on Australian documents are day/month/year.`;
   function closeSheet() { $('#sheetRoot').innerHTML = ''; document.body.classList.remove('sheet-open'); }
 
   // The scanner can't read the odometer on this car, but it can read "distance since codes cleared".
-  // One dash reading taken at the same time links the two: odometer = offset + counter.
-  function odoAnchor() { const a = state.meta.find(x => x._id === 'odoAnchor'); return a && a.offset != null && a.counter != null ? a : null; }
+  // A dash reading taken at the same time links the two. The counter runs about 2% behind the dash,
+  // so it is calibrated: odometer = odo + (counter − anchor counter) × scale. The scale comes from the
+  // dash and counter distances since the base, the first link since the counter last reset.
+  function odoAnchor() { const a = state.meta.find(x => x._id === 'odoAnchor'); return a && a.odo != null && a.counter != null ? a : null; }
+  const anchorScale = (a) => +a.scale > 0 ? +a.scale : 1; // older anchors have no scale
+  // Odometer for a counter reading, or null when it's below the link (codes cleared since).
+  function odoFromCounter(a, counter) { return a && counter >= +a.counter ? Math.round(+a.odo + (counter - +a.counter) * anchorScale(a)) : null; }
+  // The anchor to save when a dash reading re-links the counter.
+  function relinkAnchor(a, counter, km, date) {
+    const point = { counter, odo: km, date };
+    if (!a || counter < +a.counter) return { ...point, scale: 1, base: point }; // first link, or codes cleared: new base
+    const base = a.base && a.base.counter != null && a.base.odo != null ? a.base : { counter: +a.counter, odo: +a.odo, date: a.date };
+    let scale = anchorScale(a);
+    const moved = counter - +base.counter;
+    if (moved >= 100) { const s = (km - +base.odo) / moved; scale = s >= 0.95 && s <= 1.05 ? s : 1; }
+    return { ...point, scale, base };
+  }
   function kmSheet(existing, pf) {
     const cur = currentKm();
     const anchor = odoAnchor();
@@ -2356,7 +2376,7 @@ Dates on Australian documents are day/month/year.`;
       <div class="field"><label for="f-note">Note (optional)</label><input id="f-note" placeholder="e.g. fuel fill, Shell Sutherland" value="${existing ? esc(existing.note || '') : pf && !pf.fromScanner ? 'From dash photo' : ''}"></div>
       ${existing ? '' : `<details class="more"${pf && pf.fromScanner || carScan != null ? ' open' : ''}><summary>From the OBD scanner</summary>
         <div class="field"><label for="f-scan">Distance since codes cleared (km)</label><input id="f-scan" inputmode="numeric" pattern="[0-9]*" value="${pf && pf.scan ? esc(pf.scan) : carScan != null ? esc(carScan) : ''}" placeholder="${anchor ? 'e.g. ' + (+anchor.counter + 120) : 'e.g. 11881'}"></div>
-        <p class="sub" id="scanHint" style="margin:0">${anchor ? `Linked on ${fmtDate(parseDate(anchor.date))}: odometer = ${fmtKm(anchor.offset)} + this counter.` : 'Enter today’s dash odometer above as well, once, to link the counter to it.'}</p>
+        <p class="sub" id="scanHint" style="margin:0">${anchor ? `Linked on ${fmtDate(parseDate(anchor.date))} at ${fmtKm(anchor.odo)} km (counter ${fmtKm(anchor.counter)})${anchorScale(anchor) !== 1 ? `, counter calibrated ×${anchorScale(anchor).toFixed(3)}` : ''}.` :'Enter today’s dash odometer above as well, once, to link the counter to it.'}</p>
       </details>`}
       ${!existing && !pf && PhotoReader.available() ? `<button class="btn ghost file-btn" type="button" id="kmPhoto">${icon('camera')}Read from a photo</button>` : ''}
       <div id="confirmBox"></div>
@@ -2370,9 +2390,10 @@ Dates on Australian documents are day/month/year.`;
         const onScan = () => {
           const sc = scanVal();
           if (!sc || !hint) return;
-          if (anchor && sc >= +anchor.counter) {
-            if (!kmTyped) kmIn.value = +anchor.offset + sc;
-            hint.textContent = `= ${fmtKm(+anchor.offset + sc)} km on the odometer (linked ${fmtDate(parseDate(anchor.date))}).`;
+          const est = odoFromCounter(anchor, sc);
+          if (est != null) {
+            if (!kmTyped) kmIn.value = est;
+            hint.textContent = `= ${fmtKm(est)} km on the odometer (linked ${fmtDate(parseDate(anchor.date))}).`;
           } else if (anchor) {
             hint.textContent = 'The counter is lower than last time, so the codes were probably cleared. Enter today’s dash odometer above to link it again.';
             if (!kmTyped) kmIn.value = '';
@@ -2389,10 +2410,10 @@ Dates on Australian documents are day/month/year.`;
           let newAnchor = null;
           if (sc) {
             data.scan = sc;
-            const computed = anchor && sc >= +anchor.counter ? +anchor.offset + sc : null;
+            const computed = odoFromCounter(anchor, sc);
             // A dash reading that differs from the calculation (or a reset counter) re-links the counter.
             // 1 km is the most that whole-km rounding can explain, so anything more re-links.
-            if (computed == null || Math.abs(km - computed) > 1) newAnchor = { offset: km - sc, counter: sc, odo: km, date };
+            if (computed == null || Math.abs(km - computed) > 1) newAnchor = relinkAnchor(anchor, sc, km, date);
             if (!data.note) data.note = computed != null && !newAnchor ? `From scanner (counter ${fmtKm(sc)})` : `Dash, scanner linked (counter ${fmtKm(sc)})`;
           }
           await write(async () => {
@@ -2512,7 +2533,7 @@ Dates on Australian documents are day/month/year.`;
   async function useCarCounter(counter) {
     const anchor = odoAnchor(), cur = currentKm();
     const last = cur && cur.base ? +cur.base.km : null;
-    const km = anchor && counter >= +anchor.counter ? +anchor.offset + counter : null;
+    const km = odoFromCounter(anchor, counter);
     let why = null;
     if (!anchor) why = 'It isn’t linked to the odometer yet.'; // the hint under the counter field says what to do
     else if (km == null) why = `That’s lower than when it was linked (${fmtKm(anchor.counter)} km).`;
